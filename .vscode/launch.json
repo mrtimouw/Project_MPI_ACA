@@ -1,0 +1,33 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Serial",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}\\bin\\tf_idf_serial.exe",
+      "args": [
+        "${workspaceFolder}\\doclist.txt",
+        "${workspaceFolder}\\out_serial"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "preLaunchTask": "Build: tfidf_serial"
+    },
+    {
+      "name": "Run MPI (4 proc)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "C:\\Program Files\\Microsoft MPI\\Bin\\mpiexec.exe",
+      "args": [
+        "-n", "4",
+        "${workspaceFolder}\\bin\\tfidf_mpi.exe",
+        "${workspaceFolder}\\doclist.txt",
+        "${workspaceFolder}\\out_mpi"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "preLaunchTask": "Build: tfidf_mpi"
+    }
+  ]
+}
