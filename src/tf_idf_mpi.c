@@ -1,6 +1,3 @@
-// tfidf_mpi.c — Parallel TF-IDF with MPI (C17, MSVC-friendly, UTF-8 robust via WinAPI, no external headers)
-// Build (Dev Prompt): cl /TC /std:c17 /O2 tfidf_mpi.c /Fe:tfidf_mpi.exe /I"%ProgramFiles(x86)%\Microsoft SDKs\MPI\Include" /link /LIBPATH:"%ProgramFiles(x86)%\Microsoft SDKs\MPI\Lib\x64" msmpi.lib
-// Run: mpiexec -n 8 tfidf_mpi.exe doclist.txt out_dir
 #define _CRT_SECURE_NO_WARNINGS
 #ifdef _MSC_VER
 #define strdup _strdup
@@ -19,7 +16,6 @@
 #include <wchar.h>
 #include <wctype.h>
 
-// ===== Minimal string->int hashmap (open addressing) =====
 typedef struct { char* key; int value; int used; } HMEntry;
 typedef struct { HMEntry* a; size_t cap; size_t size; } HashMapI;
 
@@ -64,9 +60,7 @@ static int hm_get(const HashMapI* m, const char* key){
     while (m->a[i].used){ if (strcmp(m->a[i].key, key)==0) return m->a[i].value; i = (i+1) & mask; }
     return 0;
 }
-// ===== End hashmap =====
 
-// ===== UTF-8 conversions via WinAPI (independent from locale) =====
 static wchar_t* utf8_to_wide(const char* s){
     if(!s) return NULL;
     int lenW = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, s, -1, NULL, 0);
@@ -87,7 +81,6 @@ static char* wide_to_utf8(const wchar_t* w){
     return s;
 }
 
-// ===== I/O utils =====
 static char** read_lines(const char* path, int* outN){
     FILE* f = fopen(path, "rb");
     if(!f){ fprintf(stderr,"Impossibile aprire %s\n", path); return NULL; }
@@ -118,7 +111,6 @@ static char* read_file(const char* path, size_t* outLen){
     data[got]=0; if(outLen) *outLen = got; return data;
 }
 
-// ===== Tokenization (UTF-8 aware) =====
 static void process_document(const char* text, HashMapI* tf, HashMapI* seen){
     hm_init(tf, 128);
     hm_init(seen, 128);
@@ -149,7 +141,7 @@ static void process_document(const char* text, HashMapI* tf, HashMapI* seen){
                 wtok[tlen]=0;
                 char* tok8 = wide_to_utf8(wtok);
                 if (tok8){
-                    // filtro semplice di lunghezza, utile per ridurre rumore/memoria
+                    
                     size_t L = strlen(tok8);
                     if (L >= 2 && L <= 40){
                         hm_add(tf, tok8, 1);
@@ -165,9 +157,8 @@ static void process_document(const char* text, HashMapI* tf, HashMapI* seen){
     free(wtok); free(wbuf);
 }
 
-// ===== Serialization helpers for DF/dictionary =====
 static char* serialize_df(const HashMapI* df, int* outLen){
-    // "term\tcount\n"
+    
     size_t est = df->size * 16 + 1;
     char* s = (char*)malloc(est); size_t pos=0;
     if(!s){ *outLen=0; return NULL; }
@@ -209,7 +200,7 @@ static void dictlist_free(DictList* L){
     free(L->a); L->a=NULL; L->n=L->cap=0;
 }
 static char* serialize_dict(const DictList* L, int* outLen){
-    // "term\tidf\n"
+    
     size_t est = L->n * 24 + 1;
     char* s = (char*)malloc(est); size_t pos=0;
     for (size_t i=0;i<L->n;++i){
@@ -221,7 +212,7 @@ static char* serialize_dict(const DictList* L, int* outLen){
     s[pos]=0; *outLen=(int)pos; return s;
 }
 static void deserialize_dict_to_map(const char* buf, int len, HashMapI* idf_map_scaled){
-    // memorizziamo idf*1e6 come int per efficienza (poi dividiamo)
+   
     hm_init(idf_map_scaled, 1<<14);
     const char* p = buf; const char* end = buf + len;
     while (p < end){
@@ -240,7 +231,6 @@ static void deserialize_dict_to_map(const char* buf, int len, HashMapI* idf_map_
     }
 }
 
-// ===== Main MPI program =====
 typedef struct { char* term; double w; } PairSD;
 static int cmp_desc(const void* a, const void* b){
     double da = ((const PairSD*)a)->w, db = ((const PairSD*)b)->w;
@@ -260,7 +250,6 @@ int main(int argc, char** argv){
     const char* doclist_path = argv[1];
     const char* outdir = argv[2];
 
-    // Rank 0 legge la doclist e broadcasta i percorsi
     int N = 0;
     char** docs = NULL;
     if (rank == 0){
@@ -271,7 +260,6 @@ int main(int argc, char** argv){
     if (N <= 0){ MPI_Finalize(); return 1; }
     if (rank != 0) docs = (char**)malloc(N * sizeof(char*));
 
-    // Broadcast lunghezze + contenuti stringhe (semplice ma robusto)
     int* lengths = (int*)malloc(N * sizeof(int));
     if (rank==0){ for (int i=0;i<N;++i) lengths[i] = (int)strlen(docs[i]); }
     MPI_Bcast(lengths, N, MPI_INT, 0, MPI_COMM_WORLD);
@@ -281,21 +269,19 @@ int main(int argc, char** argv){
         docs[i][lengths[i]] = 0;
     }
 
-    // Ogni rank elabora la sua quota: TF per documento + DF locale
     HashMapI df_local; hm_init(&df_local, 1<<14);
-    HashMapI* doc_tf = (HashMapI*)calloc(N, sizeof(HashMapI)); // solo per i doc del rank verrà usato
+    HashMapI* doc_tf = (HashMapI*)calloc(N, sizeof(HashMapI));
     for (int i=0;i<N;++i){
         if (i % P != rank) continue;
         size_t L=0; char* txt = read_file(docs[i], &L);
         if(!txt){ fprintf(stderr,"[rank %d] Impossibile leggere: %s\n", rank, docs[i]); hm_init(&doc_tf[i],16); continue; }
         HashMapI tf, seen; process_document(txt, &tf, &seen); free(txt);
         doc_tf[i] = tf;
-        // aggiorna DF locale con i termini unici
+        
         for (size_t s=0; s<seen.cap; ++s){ if(!seen.a[s].used) continue; hm_add(&df_local, seen.a[s].key, 1); }
         hm_free(&seen);
     }
 
-    // Serializza DF locale e gather su rank 0
     int payload_len=0; char* payload = serialize_df(&df_local, &payload_len);
     int* sizes = NULL; int* displs = NULL;
     if (rank == 0){ sizes = (int*)malloc(P*sizeof(int)); }
@@ -311,8 +297,7 @@ int main(int argc, char** argv){
                 recvbuf, sizes, displs, MPI_CHAR,
                 0, MPI_COMM_WORLD);
 
-    // Rank 0: merge DF globali, calcolo IDF, serializzazione dizionario
-    HashMapI idf_map_scaled; // idf*1e6
+    HashMapI idf_map_scaled; 
     int dict_len=0; char* dict_ser=NULL;
     if (rank == 0){
         HashMapI df_global; hm_init(&df_global, 1<<16);
@@ -322,7 +307,6 @@ int main(int argc, char** argv){
                 deserialize_df_and_merge(recvbuf + displs[r], sizes[r], &df_global);
             }
         }
-        // Calcolo IDF e costruzione lista dizionario
         DictList D; dictlist_init(&D);
         for (size_t s=0; s<df_global.cap; ++s){
             if(!df_global.a[s].used) continue;
@@ -340,16 +324,13 @@ int main(int argc, char** argv){
     if (payload) free(payload);
     hm_free(&df_local);
 
-    // Broadcast del dizionario serializzato
     MPI_Bcast(&dict_len, 1, MPI_INT, 0, MPI_COMM_WORLD);
     if (rank != 0) dict_ser = (char*)malloc(dict_len>0? dict_len : 1);
     if (dict_len>0) MPI_Bcast(dict_ser, dict_len, MPI_CHAR, 0, MPI_COMM_WORLD);
 
-    // Deserializza dizionario in mappa: term -> (idf*1e6)
     deserialize_dict_to_map(dict_ser, dict_len, &idf_map_scaled);
     if (dict_ser) free(dict_ser);
 
-    // Output TF-IDF locale (top-k)
     int k = 20;
     _mkdir(outdir);
     char partpath[1024]; sprintf(partpath, "%s/part_%d.txt", outdir, rank);
@@ -367,7 +348,7 @@ int main(int argc, char** argv){
             if(!doc_tf[i].a[s].used) continue;
             char* term = doc_tf[i].a[s].key; int tf = doc_tf[i].a[s].value;
             int idf_scaled = hm_get(&idf_map_scaled, term);
-            if (idf_scaled == 0) continue; // termine non presente? (dovrebbe essere raro)
+            if (idf_scaled == 0) continue;
             double idf = idf_scaled / 1000000.0;
             arr[idx].term = term; arr[idx].w = tf * idf; idx++;
         }
@@ -380,7 +361,6 @@ int main(int argc, char** argv){
     }
     if (out) fclose(out);
 
-    // cleanup docs + idf_map
     for (int i=0;i<N;++i) free(docs[i]); free(docs);
     hm_free(&idf_map_scaled);
 

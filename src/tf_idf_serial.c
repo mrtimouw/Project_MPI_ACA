@@ -1,13 +1,11 @@
-// tfidf_serial.c  —  Serial TF-IDF in C (C17, MSVC-friendly, no external headers)
-// Build: Visual Studio → Console App (C), x64, C17 (/std:c17)
-// Run:   YourExe.exe doclist.txt out_dir
+
 #define _CRT_SECURE_NO_WARNINGS
 #ifdef _MSC_VER
 #define strdup _strdup
 #endif
 
 #include <ctype.h>
-#include <direct.h>   // _mkdir (Windows)
+#include <direct.h>   
 #include <locale.h>
 #include <math.h>
 #include <stdint.h>
@@ -15,7 +13,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-// ---------- Minimal string->int hashmap (open addressing, no deletes) ----------
 typedef struct { char* key; int value; int used; } HMEntry;
 typedef struct { HMEntry* a; size_t cap; size_t size; } HashMapI;
 
@@ -51,13 +48,12 @@ static void hm_rehash(HashMapI* m, size_t newcap){
         n.a[j].used = 1; n.a[j].key = k; n.a[j].value = v; n.size++;
     }
     free(m->a);
-    *m = n; // move
+    *m = n; 
 }
 static void hm_maybe_grow(HashMapI* m){
-    // grow when load factor > 0.7
+    
     if ((m->size+1)*10 >= (m->cap*7)) hm_rehash(m, m->cap<<1);
 }
-// increment key by delta (insert if missing)
 static void hm_add(HashMapI* m, const char* key, int delta){
     hm_maybe_grow(m);
     uint64_t h = fnv1a64(key); size_t mask = m->cap - 1; size_t i = (size_t)(h & mask);
@@ -70,7 +66,6 @@ static void hm_add(HashMapI* m, const char* key, int delta){
     m->a[i].value = delta;
     m->size++;
 }
-// get value (0 if missing)
 static int hm_get(const HashMapI* m, const char* key){
     if(m->size==0) return 0;
     uint64_t h = fnv1a64(key); size_t mask = m->cap - 1; size_t i = (size_t)(h & mask);
@@ -80,9 +75,7 @@ static int hm_get(const HashMapI* m, const char* key){
     }
     return 0;
 }
-// ---------- End hashmap ----------
 
-// read lines from a file into array of strings
 static char** read_lines(const char* path, int* outN){
     FILE* f = fopen(path, "rb");
     if(!f){ fprintf(stderr,"Impossibile aprire %s\n", path); return NULL; }
@@ -99,7 +92,6 @@ static char** read_lines(const char* path, int* outN){
     *outN = (int)n; return lines;
 }
 
-// read whole file into memory
 static char* read_file(const char* path, size_t* outLen){
     FILE* f = fopen(path, "rb");
     if(!f) return NULL;
@@ -112,7 +104,7 @@ static char* read_file(const char* path, size_t* outLen){
     data[got]=0; if(outLen) *outLen = got; return data;
 }
 
-// tokenize: keep letters, lowercase; split on non-letters
+
 static void process_document(const char* text, HashMapI* tf, HashMapI* seen){
     hm_init(tf, 128);
     hm_init(seen, 128);
@@ -129,7 +121,7 @@ static void process_document(const char* text, HashMapI* tf, HashMapI* seen){
             if (len){
                 tok[len]=0;
                 hm_add(tf, tok, 1);
-                // set semantics: only mark once
+                
                 if (hm_get(seen, tok)==0) hm_add(seen, tok, 1);
                 len=0;
             }
@@ -147,7 +139,7 @@ static int cmp_desc(const void* a, const void* b){
 }
 
 int main(int argc, char** argv){
-    setlocale(LC_ALL, ""); // per lettere accentate nei testi locali
+    setlocale(LC_ALL, ""); 
 
     if (argc < 3){
         fprintf(stderr, "Uso: %s doclist.txt out_dir\n", argv[0]);
@@ -159,10 +151,9 @@ int main(int argc, char** argv){
     int N=0; char** docs = read_lines(doclist, &N);
     if(!docs || N==0){ fprintf(stderr,"doclist vuota o non leggibile.\n"); return 1; }
 
-    _mkdir(outdir); // crea dir se non esiste
+    _mkdir(outdir); 
 
-    // Per ogni documento: TF e set "seen"; accumula DF globale.
-    HashMapI df; hm_init(&df, 1<<10); // document frequency globale
+    HashMapI df; hm_init(&df, 1<<10); 
     HashMapI* doc_tf = (HashMapI*)calloc(N, sizeof(HashMapI));
     if (!doc_tf){ fprintf(stderr,"alloc doc_tf fail\n"); return 1; }
 
@@ -175,7 +166,6 @@ int main(int argc, char** argv){
         free(txt);
         doc_tf[i] = tf;
 
-        // aggiorna DF con i termini unici del documento
         for (size_t s=0; s<seen.cap; ++s){
             if(!seen.a[s].used) continue;
             hm_add(&df, seen.a[s].key, 1);
@@ -183,14 +173,13 @@ int main(int argc, char** argv){
         hm_free(&seen);
     }
 
-    // Scrivi TF-IDF top-k per documento
     int k = 20;
     char outpath[1024]; snprintf(outpath, sizeof outpath, "%s/%s", outdir, "tfidf_serial.txt");
     FILE* out = fopen(outpath, "wb");
     if(!out){ fprintf(stderr,"Impossibile aprire output '%s'\n", outpath); return 1; }
 
     for (int i=0;i<N;++i){
-        // conta termini nel documento
+      
         size_t cnt = doc_tf[i].size;
         fprintf(out, "DOC %d %s\n", i, docs[i]);
         if (cnt == 0){ fprintf(out, "\n"); continue; }
@@ -202,12 +191,12 @@ int main(int argc, char** argv){
             char* term = doc_tf[i].a[s].key;
             int tf = doc_tf[i].a[s].value;
             int df_count = hm_get(&df, term);
-            double idf = log((N + 1.0) / (df_count + 1.0)) + 1.0; // smooth idf
+            double idf = log((N + 1.0) / (df_count + 1.0)) + 1.0;
             arr[idx].term = term;
             arr[idx].w = tf * idf;
             idx++;
         }
-        // ordina desc e stampa top-k
+       
         qsort(arr, idx, sizeof(PairSD), cmp_desc);
         int limit = (k < (int)idx ? k : (int)idx);
         for (int j=0;j<limit;++j) fprintf(out, "%s\t%.6f\n", arr[j].term, arr[j].w);
@@ -216,7 +205,6 @@ int main(int argc, char** argv){
     }
     fclose(out);
 
-    // cleanup
     for (int i=0;i<N;++i){ hm_free(&doc_tf[i]); free(docs[i]); }
     free(doc_tf); free(docs);
     hm_free(&df);
